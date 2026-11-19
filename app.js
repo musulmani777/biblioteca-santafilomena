@@ -146,13 +146,24 @@
     initializeApp();
   }
 
-  function handleGoogleCredential(response) {
+    function handleGoogleCredential(response) {
     try {
       const claims = decodeJwtPayload(response.credential);
       const email = String(claims.email || "").toLowerCase();
-     if (claims.email_verified !== true || String(claims.hd || "").toLowerCase() !== DOMAIN
-    || !email.endsWith(`@${DOMAIN}`)) {
-  setLoginError(`Usa una cuenta verificada @${DOMAIN}.`);
+      if (claims.email_verified !== true || String(claims.hd || "").toLowerCase() !== DOMAIN
+          || !email.endsWith(`@${DOMAIN}`)) {
+        setLoginError(`Usa una cuenta verificada @${DOMAIN}.`);
+        return;
+      }
+      setLoginError("");
+      showApp({
+        credential: response.credential,
+        email,
+        name: String(claims.name || email)
+      });
+    } catch (error) {
+      setLoginError(error.message || "No se pudo verificar la cuenta de Google.");
+    }
   }
 
   function initializeGoogleSignIn(attempt = 0) {
