@@ -1,4 +1,4 @@
-const CACHE_NAME = "biblioteca-santa-filomena-pages-v1";
+const CACHE_NAME = "biblioteca-santa-filomena-pages-v2";
 const APP_BASE = new URL("./", self.registration.scope);
 const APP_SHELL = [
   APP_BASE.href,
