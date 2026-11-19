@@ -3,7 +3,7 @@
 
   const $ = (selector) => document.querySelector(selector);
   const CONFIG = window.BIBLIOTECA_CONFIG || {};
-  const DOMAIN = "escuelasantafilomena.cl";
+ const ALLOWED_EMAIL = "santinoo.practica@gmail.com";
   const PROFILE = "BIBLIOTECA";
   const BLOCKS = [
     ["08:00", "08:45"], ["08:45", "09:30"],
@@ -71,7 +71,7 @@
   function errorMessage(code) {
     const messages = {
       autenticacion_requerida: "Vuelve a iniciar sesión con Google.",
-      dominio_no_permitido: `Usa una cuenta @${DOMAIN}.`,
+      dominio_no_permitido: `Solo se permite la cuenta ${ALLOWED_EMAIL} en Biblioteca.`,
       token_invalido: "La sesión de Google expiró. Inicia sesión nuevamente.",
       bloque_ocupado: "Ese bloque ya fue solicitado. Elige otro.",
       datos_invalidos: "Revisa la fecha, el curso y la cantidad de alumnos.",
@@ -150,10 +150,8 @@
     try {
       const claims = decodeJwtPayload(response.credential);
       const email = String(claims.email || "").toLowerCase();
-      if (claims.email_verified !== true || String(claims.hd || "").toLowerCase() !== DOMAIN
-          || !email.endsWith(`@${DOMAIN}`)) {
-        setLoginError(`Usa una cuenta verificada @${DOMAIN}.`);
-        return;
+      if (claims.email_verified !== true || email !== ALLOWED_EMAIL) {
+  setLoginError(`Solo se permite la cuenta ${ALLOWED_EMAIL} en Biblioteca.`);
       }
       setLoginError("");
       showApp({
