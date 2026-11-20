@@ -103,7 +103,7 @@
 
   function sendApiRequest(payload) {
     return new Promise((resolve, reject) => {
-      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const requestId = window.crypto && window.crypto.randomUUID         ? window.crypto.randomUUID()         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const frame = document.createElement("iframe");
       frame.name = `biblioteca-api-${requestId}`;
       frame.title = "Respuesta de la API de Biblioteca";
@@ -145,7 +145,7 @@
         callback(value);
       };
       const onMessage = (event) => {
-        if (event.source !== frame.contentWindow || !isAppsScriptOrigin(event.origin)) return;
+        if (!isAppsScriptOrigin(event.origin)) return;
         const message = event.data;
         if (!message || message.type !== API_RESPONSE_TYPE || message.requestId !== requestId) return;
         if (!message.response || typeof message.response !== "object") {
