@@ -3,8 +3,10 @@
 
   const $ = (selector) => document.querySelector(selector);
   const CONFIG = window.BIBLIOTECA_CONFIG || {};
- const DOMAIN = "escuelasantafilomena.cl";
+  const DOMAIN = "escuelasantafilomena.cl";
   const PROFILE = "BIBLIOTECA";
+  const API_RESPONSE_TYPE = "biblioteca-api-response";
+  const API_TIMEOUT_MS = 30000;
   const BLOCKS = [
     ["08:00", "08:45"], ["08:45", "09:30"],
     ["09:45", "10:30"], ["10:30", "11:15"],
@@ -71,7 +73,7 @@
   function errorMessage(code) {
     const messages = {
       autenticacion_requerida: "Vuelve a iniciar sesión con Google.",
-     dominio_no_permitido: `Usa una cuenta @${DOMAIN}.`,
+      dominio_no_permitido: `Usa una cuenta @${DOMAIN}.`,
       token_invalido: "La sesión de Google expiró. Inicia sesión nuevamente.",
       bloque_ocupado: "Ese bloque ya fue solicitado. Elige otro.",
       datos_invalidos: "Revisa la fecha, el curso y la cantidad de alumnos.",
@@ -85,27 +87,92 @@
     return messages[code] || code || "No se pudo completar la solicitud.";
   }
 
+  function isAppsScriptOrigin(origin) {
+    try {
+      const parsed = new URL(origin);
+      const host = parsed.hostname;
+      return parsed.protocol === "https:"
+        && (host === "script.google.com"
+          || host === "script.googleusercontent.com"
+          || host.endsWith(".script.googleusercontent.com")
+          || host.endsWith("-script.googleusercontent.com"));
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function sendApiRequest(payload) {
+    return new Promise((resolve, reject) => {
+      const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const frame = document.createElement("iframe");
+      frame.name = `biblioteca-api-${requestId}`;
+      frame.title = "Respuesta de la API de Biblioteca";
+      frame.setAttribute("aria-hidden", "true");
+      frame.style.cssText = "position:absolute;width:1px;height:1px;left:-10000px;top:-10000px;border:0";
+
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = CONFIG.appsScriptUrl;
+      form.target = frame.name;
+      form.acceptCharset = "UTF-8";
+      form.style.display = "none";
+
+      const fields = {
+        transport: "iframe",
+        requestId,
+        payload: JSON.stringify(payload)
+      };
+      Object.keys(fields).forEach((name) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = name;
+        input.value = fields[name];
+        form.append(input);
+      });
+
+      let timeoutId;
+      let settled = false;
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        window.removeEventListener("message", onMessage);
+        form.remove();
+        frame.remove();
+      };
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback(value);
+      };
+      const onMessage = (event) => {
+        if (event.source !== frame.contentWindow || !isAppsScriptOrigin(event.origin)) return;
+        const message = event.data;
+        if (!message || message.type !== API_RESPONSE_TYPE || message.requestId !== requestId) return;
+        if (!message.response || typeof message.response !== "object") {
+          finish(reject, new Error("Apps Script respondió con un formato no válido."));
+          return;
+        }
+        finish(resolve, message.response);
+      };
+
+      window.addEventListener("message", onMessage);
+      timeoutId = window.setTimeout(
+        () => finish(reject, new Error("Apps Script no respondió. Comprueba que esté desplegado con acceso «Cualquiera».")),
+        API_TIMEOUT_MS
+      );
+      document.body.append(frame, form);
+      try {
+        form.submit();
+      } catch (error) {
+        finish(reject, new Error("No se pudo enviar la solicitud a Apps Script."));
+      }
+    });
+  }
+
   async function api(payload) {
     if (!CONFIG.appsScriptUrl) throw new Error("Falta configurar la URL del Apps Script.");
-    let response;
-    try {
-      response = await fetch(CONFIG.appsScriptUrl, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=UTF-8" },
-        body: JSON.stringify(payload),
-        cache: "no-store"
-      });
-    } catch (error) {
-      throw new Error("No se pudo conectar con la API. Revisa tu conexión a Internet.");
-    }
-
-    let data;
-    try {
-      data = await response.json();
-    } catch (error) {
-      throw new Error("El Apps Script respondió con un formato no válido.");
-    }
-    if (!response.ok || !data || data.ok !== true) {
+    const data = await sendApiRequest(payload);
+    if (!data || data.ok !== true) {
       const code = data && data.error;
       if (["sin_token", "token_invalido", "autenticacion_requerida"].includes(code)) {
         expireSession(errorMessage(code));
@@ -146,7 +213,7 @@
     initializeApp();
   }
 
-    function handleGoogleCredential(response) {
+  function handleGoogleCredential(response) {
     try {
       const claims = decodeJwtPayload(response.credential);
       const email = String(claims.email || "").toLowerCase();
