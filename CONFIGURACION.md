@@ -2,18 +2,13 @@
 
 La carpeta `docs/` contiene el sitio estático. No subas la base SQLite, el entorno `.venv` ni secretos.
 
-## Requisito pendiente: OAuth institucional
+## Google OAuth institucional
 
-El inicio de sesión no se habilita hasta que el administrador de Google Workspace configure un OAuth Client ID web. La cuenta disponible no puede acceder a Cloud Console por una restricción de Workspace for Education; no existe un permiso local que la quite.
+El Client ID público del cliente OAuth web está configurado en `static/config.js` (`googleClientId`) y en `CFG.CLIENT_ID` de Apps Script. Ambos valores deben coincidir. El cliente web debe autorizar el origen JavaScript `https://musulmani777.github.io`, sin ruta.
 
-El administrador debe:
+`CFG.ADMIN_EMAIL` debe ser el correo que recibirá los avisos. Después de cambiar el Client ID o el correo en el código de Apps Script, despliega una nueva versión de la aplicación web. Confirma también que `CFG.DOMINIO` sea `escuelasantafilomena.cl`.
 
-1. Crear un cliente OAuth de tipo aplicación web en un proyecto de Google Cloud de la escuela.
-2. Autorizar el origen JavaScript `https://musulmani777.github.io`.
-3. Configurar el mismo Client ID público en `static/config.js` (`googleClientId`) y en `CFG.CLIENT_ID` de Apps Script.
-4. Confirmar que `CFG.DOMINIO` en Apps Script sea `escuelasantafilomena.cl` y desplegar una nueva versión de la aplicación web.
-
-No se necesita ni se debe publicar el Client Secret. `CLAVE_ADMIN` debe permanecer en las propiedades del proyecto Apps Script, nunca en los archivos de GitHub.
+No se necesita ni se debe publicar el Client Secret. `CLAVE_ADMIN` debe configurarse en las propiedades del proyecto Apps Script y permanecer fuera del código y de GitHub.
 
 ## GitHub Pages
 
@@ -21,7 +16,9 @@ Sube el contenido de `docs/` a la raíz del repositorio `musulmani777/biblioteca
 
 `https://musulmani777.github.io/biblioteca-santafilomena/`
 
-La interfaz usa el Apps Script indicado en `static/config.js`. Solo envía solicitudes administrativas después de verificar la sesión Google; la API también valida el token.
+La interfaz usa el Apps Script indicado en `static/config.js`. Para evitar el bloqueo CORS del navegador, envía las solicitudes mediante un formulario oculto y un iframe; `Code.gs` debe incluir el mismo puente y estar desplegado como una nueva versión de la aplicación web. Mantén el acceso de la implementación en **Cualquiera** y conserva la URL `/exec`. Los clientes antiguos que envían JSON directamente siguen recibiendo respuestas JSON.
+
+Las operaciones protegidas se envían después de iniciar sesión con Google y la API también valida el token.
 
 ## Reglas que impone el Apps Script actual
 
