@@ -3,7 +3,6 @@
 
   const $ = (selector) => document.querySelector(selector);
   const CONFIG = window.BIBLIOTECA_CONFIG || {};
-  const DOMAIN = "escuelasantafilomena.cl";
   const PROFILE = "BIBLIOTECA";
   const API_RESPONSE_TYPE = "biblioteca-api-response";
   const API_TIMEOUT_MS = 30000;
@@ -15,13 +14,15 @@
   ];
   const gate = $("#gate");
   const appShell = $("#app-shell");
-  const startSelect = $("#start");
+  const blocksGrid = $("#blocks-grid");
   const state = {
-    idToken: "",
-    email: "",
+    firstName: "",
+    surname: "",
     name: "",
     selectedDate: "",
-    selectedBlock: 1,
+    selectedBlock: 0,
+    availabilityLoaded: false,
+    availabilityError: false,
     calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     occupied: [],
     reservations: [],
@@ -72,9 +73,7 @@
 
   function errorMessage(code) {
     const messages = {
-      autenticacion_requerida: "Vuelve a iniciar sesión con Google.",
-      dominio_no_permitido: `Usa una cuenta @${DOMAIN}.`,
-      token_invalido: "La sesión de Google expiró. Inicia sesión nuevamente.",
+      nombre_requerido: "Ingresa tu nombre y apellido.",
       bloque_ocupado: "Ese bloque ya fue solicitado. Elige otro.",
       datos_invalidos: "Revisa la fecha, el curso y la cantidad de alumnos.",
       plazo_5_dias: "Las solicitudes deben hacerse con al menos 5 días hábiles.",
@@ -103,7 +102,7 @@
 
   function sendApiRequest(payload) {
     return new Promise((resolve, reject) => {
-      const requestId = window.crypto && window.crypto.randomUUID         ? window.crypto.randomUUID()         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const requestId = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const frame = document.createElement("iframe");
       frame.name = `biblioteca-api-${requestId}`;
       frame.title = "Respuesta de la API de Biblioteca";
@@ -174,91 +173,32 @@
     const data = await sendApiRequest(payload);
     if (!data || data.ok !== true) {
       const code = data && data.error;
-      if (["sin_token", "token_invalido", "autenticacion_requerida"].includes(code)) {
-        expireSession(errorMessage(code));
-      }
       throw new Error(errorMessage(code));
     }
     return data;
   }
 
-  function expireSession(message) {
+  function clearIdentity(message = "") {
     if (refreshTimer) window.clearInterval(refreshTimer);
-    state.idToken = "";
-    state.email = "";
+    state.firstName = "";
+    state.surname = "";
     state.name = "";
     appShell.hidden = true;
     gate.hidden = false;
+    $("#login-name").value = "";
+    $("#login-surname").value = "";
     setLoginError(message);
   }
 
-  function decodeJwtPayload(token) {
-    const encoded = token.split(".")[1];
-    if (!encoded) throw new Error("Respuesta de Google no válida.");
-    const base64 = encoded.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-    const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes));
-  }
-
-  function showApp(user) {
-    state.idToken = user.credential;
-    state.email = user.email;
-    state.name = user.name;
+  function showApp(firstName, surname) {
+    state.firstName = firstName;
+    state.surname = surname;
+    state.name = `${firstName} ${surname}`;
     gate.hidden = true;
     appShell.hidden = false;
-    $("#signed-email").textContent = state.email;
-    $("#teacher-email").value = state.email;
+    $("#signed-name").textContent = state.name;
     $("#teacher-name").value = state.name;
     initializeApp();
-  }
-
-  function handleGoogleCredential(response) {
-    try {
-      const claims = decodeJwtPayload(response.credential);
-      const email = String(claims.email || "").toLowerCase();
-      if (claims.email_verified !== true || String(claims.hd || "").toLowerCase() !== DOMAIN
-          || !email.endsWith(`@${DOMAIN}`)) {
-        setLoginError(`Usa una cuenta verificada @${DOMAIN}.`);
-        return;
-      }
-      setLoginError("");
-      showApp({
-        credential: response.credential,
-        email,
-        name: String(claims.name || email)
-      });
-    } catch (error) {
-      setLoginError(error.message || "No se pudo verificar la cuenta de Google.");
-    }
-  }
-
-  function initializeGoogleSignIn(attempt = 0) {
-    if (!CONFIG.googleClientId || !CONFIG.googleClientId.endsWith(".apps.googleusercontent.com")) {
-      setLoginError("El administrador debe configurar el Google OAuth Client ID para habilitar el acceso.");
-      return;
-    }
-    if (!window.google || !window.google.accounts || !window.google.accounts.id) {
-      if (attempt < 20) {
-        window.setTimeout(() => initializeGoogleSignIn(attempt + 1), 250);
-      } else {
-        setLoginError("No se pudo cargar el inicio de sesión de Google.");
-      }
-      return;
-    }
-
-    window.google.accounts.id.initialize({
-      client_id: CONFIG.googleClientId,
-      callback: handleGoogleCredential,
-      auto_select: false
-    });
-    window.google.accounts.id.renderButton($("#google-login-button"), {
-      theme: "outline",
-      size: "large",
-      shape: "pill",
-      text: "signin_with",
-      locale: "es"
-    });
   }
 
   function canonicalStatus(value) {
@@ -282,7 +222,8 @@
   async function loadTeacherData(fromDate) {
     return api({
       action: "listar",
-      idToken: state.idToken,
+      nombre: state.firstName,
+      apellido: state.surname,
       perfil: PROFILE,
       desde: fromDate
     });
@@ -376,6 +317,9 @@
 
   function selectDate(dateString) {
     state.selectedDate = dateString;
+    state.selectedBlock = 0;
+    state.availabilityLoaded = false;
+    state.availabilityError = false;
     state.calendarMonth = new Date(`${dateString}T12:00:00`);
     state.calendarMonth.setDate(1);
     setDateSummary();
@@ -388,6 +332,9 @@
         && (state.calendarMonth.getFullYear() !== Number(state.selectedDate.slice(0, 4))
           || state.calendarMonth.getMonth() !== Number(state.selectedDate.slice(5, 7)) - 1)) {
       state.selectedDate = "";
+      state.selectedBlock = 0;
+      state.availabilityLoaded = false;
+      state.availabilityError = false;
       setDateSummary();
     }
     refreshApp();
@@ -395,7 +342,9 @@
 
   function showNoDateSelected() {
     state.selectedRoom = false;
+    state.selectedBlock = 0;
     $("#submit-button").disabled = true;
+    renderBlocks();
     const message = document.createElement("p");
     message.className = "empty-state";
     message.textContent = "Selecciona una fecha disponible para consultar el bloque.";
@@ -405,6 +354,52 @@
 
   function blockDetails(blockNumber) {
     return BLOCKS[Number(blockNumber) - 1] || null;
+  }
+
+  function renderBlocks() {
+    blocksGrid.replaceChildren();
+    const blocks = BLOCKS.map((hours, index) => {
+      const number = index + 1;
+      const reservation = state.occupied.find((item) =>
+        item.f === state.selectedDate && Number(item.b) === number);
+      return { hours, number, reservation, status: reservation ? canonicalStatus(reservation.est) : "Disponible" };
+    });
+    const available = blocks.filter((block) => !block.reservation);
+    if (state.availabilityLoaded && !available.some((block) => block.number === state.selectedBlock)) {
+      state.selectedBlock = available.length ? available[0].number : 0;
+    }
+
+    blocks.forEach(({ hours, number, reservation, status }) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `time-block${number === state.selectedBlock ? " selected" : ""}`;
+      button.disabled = !state.selectedDate || !state.availabilityLoaded || Boolean(reservation);
+      button.setAttribute("aria-label", `Bloque ${number}, ${hours[0]} a ${hours[1]}, ${!state.selectedDate ? "elige fecha" : state.availabilityError ? "disponibilidad sin confirmar" : !state.availabilityLoaded ? "consultando disponibilidad" : reservation ? status : "Disponible"}`);
+      const time = document.createElement("span");
+      time.textContent = `Bloque ${number} · ${hours[0]}–${hours[1]}`;
+      const label = document.createElement("span");
+      label.className = `block-status ${!state.selectedDate || !state.availabilityLoaded ? "" : reservation ? status === "Pendiente" ? "pending" : "unavailable" : "available"}`;
+      label.textContent = !state.selectedDate ? "Elige fecha"
+        : state.availabilityError ? "No confirmado"
+        : !state.availabilityLoaded ? "Consultando"
+        : status === "Pendiente" ? "Pendiente"
+          : status === "Aprobada" ? "Ocupado" : reservation ? "No disponible" : "Disponible";
+      button.append(time, label);
+      button.addEventListener("click", () => {
+        state.selectedBlock = number;
+        state.selectedRoom = false;
+        renderBlocks();
+        loadAvailability();
+      });
+      blocksGrid.append(button);
+    });
+
+    if (!available.length && state.selectedDate && state.availabilityLoaded) {
+      state.selectedRoom = false;
+      $("#submit-button").disabled = true;
+      $("#availability-card").textContent = "No hay bloques disponibles para esta fecha.";
+      setMessage($("#availability-message"), "");
+    }
   }
 
   function renderAvailability(status) {
@@ -425,7 +420,7 @@
     container.append(card);
     state.selectedRoom = status === "Disponible";
     $("#submit-button").disabled = !state.selectedRoom;
-    const block = blockDetails(startSelect.value);
+    const block = blockDetails(state.selectedBlock);
     if (block) {
       setMessage($("#availability-message"), `Bloque consultado: ${block[0]}–${block[1]} · 45 minutos`);
     }
@@ -435,7 +430,8 @@
     const requestId = ++state.availabilityId;
     state.selectedRoom = false;
     $("#submit-button").disabled = true;
-    if (!state.selectedDate || !startSelect.value || !state.idToken) return;
+    const blockNumber = state.selectedBlock;
+    if (!state.selectedDate || !blockNumber || !state.name || !state.availabilityLoaded) return;
     try {
       const result = await api({
         action: "disponibilidad",
@@ -445,13 +441,25 @@
       });
       if (requestId !== state.availabilityId) return;
       const occupied = result.ocupados.some((item) =>
-        item.f === state.selectedDate && Number(item.b) === Number(startSelect.value));
+        item.f === state.selectedDate && Number(item.b) === blockNumber);
       if (!occupied) {
+        state.occupied = state.occupied.filter((item) =>
+          !(item.f === state.selectedDate && Number(item.b) === blockNumber));
+        renderBlocks();
         renderAvailability("Disponible");
         return;
       }
-      const entry = state.occupied.find((item) =>
-        item.f === state.selectedDate && Number(item.b) === Number(startSelect.value));
+      let entry = state.occupied.find((item) =>
+        item.f === state.selectedDate && Number(item.b) === blockNumber);
+      if (!entry) {
+        entry = { f: state.selectedDate, b: blockNumber, est: "OCUPADA" };
+        state.occupied.push(entry);
+        renderBlocks();
+      }
+      if (state.selectedBlock !== blockNumber) {
+        await loadAvailability();
+        return;
+      }
       renderAvailability(entry ? canonicalStatus(entry.est) : "Ocupada");
     } catch (error) {
       if (requestId !== state.availabilityId) return;
@@ -466,7 +474,7 @@
     const reservations = [...state.reservations].sort((a, b) =>
       `${b.f}-${String(b.b).padStart(2, "0")}`.localeCompare(`${a.f}-${String(a.b).padStart(2, "0")}`));
     if (!reservations.length) {
-      container.innerHTML = '<p class="empty-state">Aún no tienes solicitudes con esta cuenta.</p>';
+      container.innerHTML = '<p class="empty-state">Aún no tienes solicitudes con este nombre.</p>';
       return;
     }
 
@@ -486,7 +494,7 @@
       badge.textContent = status === "Aprobada" ? "Aceptada" : status;
       top.append(title, badge);
       const details = document.createElement("p");
-      details.textContent = `${formatDate(reservation.f)} · ${block ? `${block[0]}–${block[1]}` : `Bloque ${reservation.b}`} · ${reservation.curso} · ${reservation.pcs} alumnos`;
+      details.textContent = `${reservation.nombre} · ${formatDate(reservation.f)} · ${block ? `${block[0]}–${block[1]}` : `Bloque ${reservation.b}`} · ${reservation.curso} · ${reservation.pcs} alumnos`;
       card.append(top, details);
       if (reservation.respuesta) {
         const note = document.createElement("p");
@@ -517,13 +525,23 @@
   }
 
   async function refreshApp() {
-    if (!state.idToken) return;
+    if (!state.name) return;
     const requestId = ++state.refreshId;
     const monthStart = `${state.calendarMonth.getFullYear()}-${String(state.calendarMonth.getMonth() + 1).padStart(2, "0")}-01`;
     try {
       const data = await loadTeacherData(monthStart);
       if (requestId !== state.refreshId) return;
       applyList(data);
+      state.availabilityLoaded = true;
+      state.availabilityError = false;
+      const earliest = minimumBookingDate();
+      if (state.selectedDate && state.selectedDate < earliest) {
+        state.selectedDate = earliest;
+        state.calendarMonth = new Date(`${earliest}T12:00:00`);
+        state.calendarMonth.setDate(1);
+        setDateSummary();
+      }
+      renderBlocks();
       renderCalendar();
       renderHistory();
       if (state.selectedDate) await loadAvailability();
@@ -531,6 +549,10 @@
       setMessage($("#history-message"), "");
     } catch (error) {
       if (requestId !== state.refreshId) return;
+      state.availabilityLoaded = false;
+      state.availabilityError = true;
+      renderBlocks();
+      $("#submit-button").disabled = true;
       setMessage($("#availability-message"), error.message, "error");
       setMessage($("#history-message"), error.message, "error");
     }
@@ -547,7 +569,8 @@
     try {
       await api({
         action: "cancelar",
-        idToken: state.idToken,
+        nombre: state.firstName,
+        apellido: state.surname,
         perfil: PROFILE,
         id
       });
@@ -561,15 +584,25 @@
 
   async function initializeApp() {
     if (refreshTimer) window.clearInterval(refreshTimer);
+    state.availabilityLoaded = false;
+    state.availabilityError = false;
+    state.selectedDate = minimumBookingDate();
+    state.calendarMonth = new Date(`${state.selectedDate}T12:00:00`);
+    state.calendarMonth.setDate(1);
+    setDateSummary();
+    $("#hours-help").textContent = "Lunes a viernes · bloques de 45 minutos · al menos 5 días hábiles de anticipación";
+    renderCalendar();
+    renderBlocks();
     try {
       const initial = await loadTeacherData(localDateString());
       applyList(initial);
+      state.availabilityLoaded = true;
+      state.availabilityError = false;
       state.selectedDate = minimumBookingDate();
       state.calendarMonth = new Date(`${state.selectedDate}T12:00:00`);
       state.calendarMonth.setDate(1);
-      startSelect.value = "1";
       setDateSummary();
-      $("#hours-help").textContent = "Lunes a viernes · bloques de 45 minutos · al menos 5 días hábiles de anticipación";
+      renderBlocks();
       renderCalendar();
       renderHistory();
       await loadAvailability();
@@ -578,21 +611,16 @@
         if (!appShell.hidden && document.visibilityState === "visible") refreshApp();
       }, 30000);
     } catch (error) {
+      state.availabilityLoaded = false;
+      state.availabilityError = true;
+      renderBlocks();
       setMessage($("#availability-message"), error.message, "error");
       setMessage($("#history-message"), error.message, "error");
     }
   }
 
-  BLOCKS.forEach((block, index) => {
-    const option = document.createElement("option");
-    option.value = String(index + 1);
-    option.textContent = `Bloque ${index + 1} · ${block[0]}–${block[1]}`;
-    startSelect.append(option);
-  });
-
   $("#previous-month").addEventListener("click", () => changeMonth(-1));
   $("#next-month").addEventListener("click", () => changeMonth(1));
-  startSelect.addEventListener("change", loadAvailability);
   $("#refresh-history").addEventListener("click", refreshApp);
 
   $("#request-form").addEventListener("submit", async (event) => {
@@ -613,12 +641,13 @@
     try {
       const result = await api({
         action: "crear",
-        idToken: state.idToken,
+        nombre: state.firstName,
+        apellido: state.surname,
         clave: reservationKey(),
         tipo: "RESERVA",
         perfil: PROFILE,
         fecha: state.selectedDate,
-        bloque: Number(startSelect.value),
+        bloque: state.selectedBlock,
         curso: $("#course").value.trim(),
         asignatura: $("#department").value.trim(),
         pcs: Number($("#students").value),
@@ -635,21 +664,29 @@
   });
 
   $("#logout-button").addEventListener("click", () => {
-    expireSession("");
+    clearIdentity();
     state.occupied = [];
     state.reservations = [];
     $("#teacher-name").value = "";
-    $("#teacher-email").value = "";
     $("#request-form").reset();
-    if (window.google && window.google.accounts && window.google.accounts.id) {
-      window.google.accounts.id.disableAutoSelect();
+  });
+
+  $("#login-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!event.currentTarget.reportValidity()) return;
+    const firstName = $("#login-name").value.trim().replace(/\s+/g, " ");
+    const surname = $("#login-surname").value.trim().replace(/\s+/g, " ");
+    if (!firstName || !surname) {
+      setLoginError(errorMessage("nombre_requerido"));
+      return;
     }
+    setLoginError("");
+    showApp(firstName, surname);
   });
 
   window.addEventListener("focus", () => {
-    if (!appShell.hidden && state.idToken) refreshApp();
+    if (!appShell.hidden && state.name) refreshApp();
   });
-  window.addEventListener("load", () => initializeGoogleSignIn());
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     window.addEventListener("load", () => {
       navigator.serviceWorker.register("./sw.js")

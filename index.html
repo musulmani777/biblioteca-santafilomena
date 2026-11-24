@@ -106,7 +106,7 @@
       padding: 22px; border: 1px solid var(--line); border-radius: 18px;
       background: #ffffffdc; box-shadow: 0 18px 55px #a9427018; text-align: left;
     }
-    .login-box label, .field label { display: block; margin-bottom: 6px; color: #634256; font-size: 13px; font-weight: 700; }
+    .login-box label,     .field label, .field-label { display: block; margin-bottom: 6px; color: #634256; font-size: 13px; font-weight: 700; }
     .login-box input, input, select, textarea {
       width: 100%; min-height: 44px; padding: 10px 12px;
       border: 1px solid #dfbfd0; border-radius: 9px;
@@ -133,7 +133,7 @@
     header h1 { margin: 0; font-size: 19px; line-height: 1.2; }
     header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
     .header-actions { display: flex; align-items: center; gap: 12px; }
-    .signed-email { color: var(--muted); font-size: 13px; }
+    .signed-name { color: var(--muted); font-size: 13px; }
     .link-button {
       border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px;
       color: var(--pink-dark); background: white; font-size: 13px; font-weight: 700;
@@ -185,6 +185,19 @@
     .legend-dot.pending { background: #e7ad20; }
     .date-summary { margin: 14px 0 0; padding: 11px 12px; border-radius: 10px; background: var(--pink-soft); color: var(--pink-dark); font-size: 13px; font-weight: 650; }
     .schedule-controls { display: grid; grid-template-columns: 1fr; gap: 11px; margin-bottom: 14px; }
+    .blocks-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .time-block {
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      min-height: 46px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px;
+      background: #fff; color: var(--ink); text-align: left; font-size: 13px;
+    }
+    .time-block:hover:not(:disabled) { background: var(--pink-soft); border-color: #efc5d8; }
+    .time-block.selected { border-color: var(--pink); background: var(--pink-soft); box-shadow: inset 0 0 0 1px var(--pink); }
+    .time-block:disabled { color: var(--muted); cursor: not-allowed; background: #f7f3f5; }
+    .block-status { font-size: 11px; font-weight: 750; white-space: nowrap; }
+    .block-status.available { color: var(--green-ink); }
+    .block-status.pending { color: var(--yellow-ink); }
+    .block-status.unavailable { color: var(--red-ink); }
     .availability-card { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; }
     .room-name { font-weight: 750; }
     .badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 750; white-space: nowrap; }
@@ -223,7 +236,7 @@
       header { padding: 13px 14px; }
       .header-inner { align-items: flex-start; }
       header h1 { font-size: 16px; }
-      .signed-email { display: none; }
+      .signed-name { display: none; }
       main { width: calc(100% - 22px); margin-top: 18px; }
       .schedule-controls, .form-grid { grid-template-columns: 1fr; }
       .field.full { grid-column: auto; }
@@ -254,11 +267,17 @@
       <h1 id="gate-title">Biblioteca Santa Filomena</h1>
       <p>Un espacio para aprender, compartir y crear.</p>
       <div class="login-box">
-        <p>Inicia sesión con tu cuenta institucional de Google.</p>
-        <div id="google-login-button"></div>
+        <p>Escribe tu nombre y apellido para ingresar.</p>
+        <form id="login-form">
+          <label for="login-name">Nombre</label>
+          <input id="login-name" autocomplete="given-name" maxlength="80" required>
+          <label for="login-surname" style="margin-top: 12px">Apellido</label>
+          <input id="login-surname" autocomplete="family-name" maxlength="80" required>
+          <button type="submit">Ingresar</button>
+        </form>
         <p id="login-error" class="error-text" role="alert"></p>
       </div>
-      <p class="privacy-note">Google verifica tu cuenta institucional. El token de sesión se mantiene solo en memoria durante esta visita.</p>
+      <p class="privacy-note">Usaremos estos datos para asociar tus solicitudes; no se verifica la identidad.</p>
     </div>
   </section>
 
@@ -270,8 +289,8 @@
           <div><h1>Sala de Biblioteca</h1><p>Reservas para profesores · Santa Filomena</p></div>
         </div>
         <div class="header-actions">
-          <span id="signed-email" class="signed-email"></span>
-          <button type="button" class="link-button" id="logout-button">Cerrar sesión</button>
+          <span id="signed-name" class="signed-name"></span>
+          <button type="button" class="link-button" id="logout-button">Cambiar nombre</button>
         </div>
       </div>
     </header>
@@ -303,8 +322,8 @@
             </div>
             <div class="schedule-controls">
               <div class="field">
-                <label for="start">Bloque horario (45 minutos)</label>
-                <select id="start"></select>
+                <span class="field-label">Bloques horarios</span>
+                <div id="blocks-grid" class="blocks-grid" role="group" aria-label="Bloques horarios"></div>
               </div>
             </div>
             <div id="availability-card" aria-live="polite"><p class="empty-state">Selecciona una fecha para consultar disponibilidad.</p></div>
@@ -348,15 +367,11 @@
                 <input id="teacher-name" autocomplete="name" maxlength="120" readonly required>
               </div>
               <div class="field full">
-                <label for="teacher-email">Correo institucional</label>
-                <input id="teacher-email" type="email" readonly>
-              </div>
-              <div class="field full">
                 <label for="department">Departamento o asignatura</label>
                 <input id="department" maxlength="120" required>
               </div>
             </div>
-            <p class="help">Identidad confirmada por Google Workspace.</p>
+            <p class="help">Nombre ingresado para identificar tus solicitudes.</p>
           </section>
           <section class="panel">
             <div class="section-heading">
@@ -378,7 +393,6 @@
   </div>
 
   <script src="./static/config.js" defer></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="./app.js" defer></script>
 </body>
 </html>
