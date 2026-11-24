@@ -1,13 +1,15 @@
-const CACHE_NAME = "biblioteca-santa-filomena-pages-v6";
+const CACHE_NAME = "biblioteca-santa-filomena-pages-v7";
 const APP_BASE = new URL("./", self.registration.scope);
+const CONFIG_URL = new URL("static/config.js?v=7", APP_BASE).href;
+const APP_SCRIPT_URL = new URL("app.js?v=7", APP_BASE).href;
 const APP_SHELL = [
   APP_BASE.href,
   new URL("manifest.webmanifest", APP_BASE).href,
   new URL("static/icon-192.png", APP_BASE).href,
   new URL("static/icon-512.png", APP_BASE).href,
   new URL("static/logo-biblioteca-cra.png", APP_BASE).href,
-  new URL("static/config.js", APP_BASE).href,
-  new URL("app.js", APP_BASE).href
+  CONFIG_URL,
+  APP_SCRIPT_URL
 ];
 
 self.addEventListener("install", (event) => {
@@ -33,7 +35,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
 
-  if (url.href === new URL("static/config.js", APP_BASE).href) {
+  if (url.href === CONFIG_URL) {
     event.respondWith(
       fetch(request).then(async (response) => {
         if (response.ok) {
