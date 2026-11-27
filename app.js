@@ -4,6 +4,7 @@
   const $ = (selector) => document.querySelector(selector);
   const CONFIG = window.BIBLIOTECA_CONFIG || {};
   const PROFILE = "BIBLIOTECA";
+  const CANCELLATION_KEY_PREFIX = "biblioteca-cancel-key:";
   const API_RESPONSE_TYPE = "biblioteca-api-response";
   const API_TIMEOUT_MS = 30000;
   const BLOCKS = [
@@ -29,7 +30,8 @@
     holidays: [],
     selectedRoom: false,
     refreshId: 0,
-    availabilityId: 0
+    availabilityId: 0,
+    cancelKeys: {}
   };
   let refreshTimer = null;
   const weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -503,14 +505,22 @@
         card.append(note);
       }
       if (["Pendiente", "Aprobada"].includes(status) && canCancel(reservation, block)) {
-        const cancel = document.createElement("button");
-        cancel.type = "button";
-        cancel.className = "cancel";
-        cancel.textContent = "Cancelar reserva";
-        cancel.addEventListener("click", () => cancelReservation(reservation.id, cancel));
-        const actions = document.createElement("p");
-        actions.append(cancel);
-        card.append(actions);
+        const clave = cancellationKey(reservation.id);
+        if (!clave) {
+          const note = document.createElement("p");
+          note.className = "empty-state";
+          note.textContent = "No se guardó la clave de cancelación para esta reserva. Contacta a administración.";
+          card.append(note);
+        } else {
+          const cancel = document.createElement("button");
+          cancel.type = "button";
+          cancel.className = "cancel";
+          cancel.textContent = "Cancelar reserva";
+          cancel.addEventListener("click", () => cancelReservation(reservation.id, clave, cancel));
+          const actions = document.createElement("p");
+          actions.append(cancel);
+          card.append(actions);
+        }
       }
       container.append(card);
     });
@@ -563,7 +573,28 @@
     return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
-  async function cancelReservation(id, button) {
+  function cancellationKey(id) {
+    if (state.cancelKeys[id]) return state.cancelKeys[id];
+    try {
+      return window.localStorage.getItem(`${CANCELLATION_KEY_PREFIX}${id}`) || "";
+    } catch (error) {
+      console.error("No se pudo leer la clave de cancelación local:", error);
+      return "";
+    }
+  }
+
+  function rememberCancellationKey(id, clave) {
+    state.cancelKeys[id] = clave;
+    try {
+      window.localStorage.setItem(`${CANCELLATION_KEY_PREFIX}${id}`, clave);
+      return true;
+    } catch (error) {
+      console.error("No se pudo guardar la clave de cancelación local:", error);
+      return false;
+    }
+  }
+
+  async function cancelReservation(id, clave, button) {
     if (!window.confirm("¿Quieres cancelar esta reserva?")) return;
     button.disabled = true;
     try {
@@ -572,8 +603,15 @@
         nombre: state.firstName,
         apellido: state.surname,
         perfil: PROFILE,
-        id
+        id,
+        clave
       });
+      delete state.cancelKeys[id];
+      try {
+        window.localStorage.removeItem(`${CANCELLATION_KEY_PREFIX}${id}`);
+      } catch (error) {
+        console.error("No se pudo borrar la clave de cancelación local:", error);
+      }
       await refreshApp();
       setMessage($("#history-message"), "Reserva cancelada.", "success");
     } catch (error) {
@@ -638,12 +676,13 @@
       `Motivo: ${motivo}`,
       requerimientos ? `Requerimientos: ${requerimientos}` : ""
     ].filter(Boolean).join("\n").slice(0, 500);
+    const clave = reservationKey();
     try {
       const result = await api({
         action: "crear",
         nombre: state.firstName,
         apellido: state.surname,
-        clave: reservationKey(),
+        clave,
         tipo: "RESERVA",
         perfil: PROFILE,
         fecha: state.selectedDate,
@@ -654,8 +693,15 @@
         observacion,
         incidencias: []
       });
+      const claveGuardada = rememberCancellationKey(result.id, clave);
       $("#request-form").reset();
-      setMessage($("#form-message"), `Solicitud ${result.id} enviada. Estado: Pendiente.`, "success");
+      setMessage(
+        $("#form-message"),
+        claveGuardada
+          ? `Solicitud ${result.id} enviada. Estado: Pendiente.`
+          : `Solicitud ${result.id} enviada. No se pudo guardar la clave de cancelación; contacta a administración si necesitas cancelarla.`,
+        claveGuardada ? "success" : "error"
+      );
       await refreshApp();
     } catch (error) {
       setMessage($("#form-message"), error.message, "error");
