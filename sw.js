@@ -1,4 +1,4 @@
-const CACHE_NAME = "biblioteca-santa-filomena-pages-v7";
+const CACHE_NAME = "biblioteca-santa-filomena-pages-v8";
 const APP_BASE = new URL("./", self.registration.scope);
 const CONFIG_URL = new URL("static/config.js?v=7", APP_BASE).href;
 const APP_SCRIPT_URL = new URL("app.js?v=7", APP_BASE).href;
